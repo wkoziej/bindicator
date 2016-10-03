@@ -25,12 +25,13 @@
 // const char* password = "PASSWORD_TO_WIFI";
 #include "sensitive.h"
 
-const char* mqtt_server = "192.168.1.111";
+const char* mqtt_server = "172.17.1.241";
+//const char* mqtt_server = "192.168.1.111";
 const int mqtt_port = 1883;
 
 const char* mqtt_username = "";
 const char* mqtt_password = "";
-const char* mqtt_topic = "statusIndicator";
+const char* mqtt_topic = "jenkins/build/results";
 
 static const int CONNECTING = 0;
 static const int WAITING_FOR_MESSAGE = 1;
@@ -38,36 +39,52 @@ static const int OK_STATUS = 2;
 static const int ERROR_STATUS = 4;
 static const int UNKNOWN_STATUS = 8;
 
-static const int MAX_ERROR_BEEPS = 3;
+static const int MAX_ERROR_BEEPS = 10;
 
 int status = CONNECTING;
 int soundCouter = MAX_ERROR_BEEPS;
+byte mac[6];
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 void setup_wifi() {
-  delay(10);
-
+  delay(500);
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
-
   WiFi.begin(ssid, password);
+  delay(500);
 
+  // status = WiFi.begin(ssid, keyIndex, key);
   while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
     digitalWrite(RED_ALERT_PIN, HIGH);
     digitalWrite(GREEN_FIELD_PIN, HIGH);
-    delay(250);
+    delay(100);
     digitalWrite(RED_ALERT_PIN, LOW);
     digitalWrite(GREEN_FIELD_PIN, LOW);
-    delay(250);
+    delay(100);
   }
 
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+  WiFi.macAddress(mac);
+  Serial.print("MAC: ");
+  Serial.print(mac[5], HEX);
+  Serial.print(":");
+  Serial.print(mac[4], HEX);
+  Serial.print(":");
+  Serial.print(mac[3], HEX);
+  Serial.print(":");
+  Serial.print(mac[2], HEX);
+  Serial.print(":");
+  Serial.print(mac[1], HEX);
+  Serial.print(":");
+  Serial.println(mac[0], HEX);
+
 }
 
 
@@ -75,21 +92,31 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    char statusArrived = (char)payload[i];
-    Serial.print(statusArrived);
+  if (length == 0)  {
+    status = UNKNOWN_STATUS;
+  }
+  else
+  {
+    char statusArrived = (char)payload[0];
     switch (statusArrived) {
-      case '0':
+      case 'S': // SUCESS....
         status = OK_STATUS;
         break;
-      case '1':
+      case 'F': // FAILURE...
         status = ERROR_STATUS;
+        soundCouter = MAX_ERROR_BEEPS;
         break;
       default:
         status = UNKNOWN_STATUS;
         break;
     }
+    Serial.print("Status:");
+    Serial.print(status);
+    Serial.print(", Tekst:");
 
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]);
+    }
   }
   Serial.println();
 }
@@ -133,22 +160,22 @@ void reconnect() {
 
 
 void light (int pin) {
-  digitalWrite(pin, HIGH);   
-  delay(250);              
-  digitalWrite(pin, LOW); 
+  digitalWrite(pin, HIGH);
+  delay(250);
+  digitalWrite(pin, LOW);
   delay(250);
 }
 
 
 void sound(int pin)
 {
-  int freq = 7500;
-  analogWriteFreq(freq);  
+  int freq = 17500;
+  analogWriteFreq(freq);
   for (int i = 0; i < 2; i++) {
     analogWrite(pin, HIGH);
-    delay(250);
-    analogWrite(pin, 0); 
-    delay (250);
+    delay(random(50, 500));
+    analogWrite(pin, 0);
+    delay (random(50, 500));
   }
 }
 
@@ -157,7 +184,7 @@ void turn(int pin)
 {
   int rotTime = analogRead(MOTOR_ROT_TIME_PIN);
   // scale
-  rotTime = 300 * ( rotTime / 1024.0); 
+  rotTime = 300 * ( rotTime / 1024.0);
   Serial.print("  ROT_TIME:");
   Serial.println(rotTime);
   analogWrite(pin, HIGH);
@@ -169,7 +196,7 @@ void loop() {
   if (!client.connected()) {
     reconnect();
   }
-  
+
   client.loop();
   switch (status) {
     case WAITING_FOR_MESSAGE:
@@ -178,6 +205,8 @@ void loop() {
       soundCouter = MAX_ERROR_BEEPS;
       break;
     case ERROR_STATUS:
+      Serial.println ("ERROR ");
+      Serial.println (soundCouter);
       digitalWrite(RED_ALERT_PIN, HIGH);
       if (soundCouter > 0) {
         sound(BUZZER_PIN);
@@ -185,8 +214,8 @@ void loop() {
       } else {
         delay (1000);
       }
-      turn(MOTOR_PIN); 
-      digitalWrite(RED_ALERT_PIN, LOW);   
+      turn(MOTOR_PIN);
+      digitalWrite(RED_ALERT_PIN, LOW);
       break;
     case OK_STATUS:
       soundCouter = MAX_ERROR_BEEPS;
@@ -198,13 +227,13 @@ void loop() {
       light(RED_ALERT_PIN);
       light(RED_ALERT_PIN);
       light(GREEN_FIELD_PIN);
-      light(GREEN_FIELD_PIN);      
-      soundCouter = MAX_ERROR_BEEPS;    
+      light(GREEN_FIELD_PIN);
+      soundCouter = MAX_ERROR_BEEPS;
       break;
     default:
-       delay(1000);
-       soundCouter = MAX_ERROR_BEEPS;
-       break;
+      delay(1000);
+      soundCouter = MAX_ERROR_BEEPS;
+      break;
   }
 
 }
